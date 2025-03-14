@@ -12,6 +12,20 @@ def init_session_state():
     if 'clean_transcript' not in st.session_state:
         st.session_state.clean_transcript = ""
 
+def get_actionable_summary_template(transcript):
+    return f"""Sumarizeaza ideile acționabile din transcript cu bullets și detalii. In indented bullet form. Add a relevant emoji in only front of each first-level step. Dont use '---' separators. Give just the summary with no intro or outro text. Output in canvas or artefact. Write in Romanian
+
+<Transcript>
+{transcript}
+</Transcript>"""
+
+def get_steps_summary_template(transcript):
+    return f"""Sumarizeaza transcript pas cu pas, cu bullets si detalii. In indented bullet form. Add a relevant emoji in only front of each first-level step. Dont use '---' separators. Give just the summary with no intro or outro text. Output in canvas or artefact. Write in Romanian
+
+<Transcript>
+{transcript}
+</Transcript>"""
+
 def main():
     st.title("YouTube Transcript Fetcher")
 
@@ -61,6 +75,22 @@ def main():
         except Exception as e:
             st.error(str(e))
             return
+
+    # Display special action buttons if transcript is available
+    if st.session_state.clean_transcript:
+        col1, col2 = st.columns(2)
+
+        with col1:
+            if st.button("Actionable Summary"):
+                prompt = get_actionable_summary_template(st.session_state.clean_transcript)
+                st.write("Copied actionable summary prompt!")
+                st.toast("Actionable summary prompt copied to clipboard!")
+
+        with col2:
+            if st.button("Steps Summary"):
+                prompt = get_steps_summary_template(st.session_state.clean_transcript)
+                st.write("Copied steps summary prompt!")
+                st.toast("Steps summary prompt copied to clipboard!")
 
     # Display transcripts if available
     if st.session_state.timestamped_transcript:

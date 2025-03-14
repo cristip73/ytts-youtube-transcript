@@ -1,7 +1,7 @@
 import re
+import os
+import requests
 from typing import Optional, Tuple
-from youtube_transcript_api import YouTubeTranscriptApi
-from youtube_transcript_api.formatters import TextFormatter
 
 def extract_video_id(url: str) -> Optional[str]:
     """Extract YouTube video ID from URL."""
@@ -9,7 +9,7 @@ def extract_video_id(url: str) -> Optional[str]:
         r'(?:v=|v/|embed/|youtu.be/)([^&?#]+)',
         r'(?:youtube.com/|youtu.be/)(?:watch\?v=)?([^&?#]+)',
     ]
-    
+
     for pattern in patterns:
         match = re.search(pattern, url)
         if match:
@@ -17,50 +17,62 @@ def extract_video_id(url: str) -> Optional[str]:
     return None
 
 def format_timestamp(seconds: float) -> str:
-    """Convert seconds to HH:MM:SS format."""
-    hours = int(seconds // 3600)
-    minutes = int((seconds % 3600) // 60)
+    """Convert seconds to MM:SS format."""
+    minutes = int(seconds // 60)
     seconds = int(seconds % 60)
-    
-    if hours > 0:
-        return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
     return f"{minutes:02d}:{seconds:02d}"
 
 def get_transcript(video_id: str, language: Optional[str] = None) -> Tuple[str, str, list]:
     """
-    Fetch and format transcript in both timestamped and clean versions.
+    Fetch transcript using Supadata API.
     Returns tuple of (timestamped_transcript, clean_transcript, available_languages)
     """
+    api_key = os.getenv('SUPADATA_API_KEY')
+    if not api_key:
+        raise Exception("Supadata API key not found")
+
+    # Base API URL
+    base_url = "https://api.supadata.ai/v1/youtube/transcript"
+
+    # Prepare headers
+    headers = {
+        'x-api-key': api_key
+    }
+
+    # Prepare params
+    params = {
+        'url': f'https://www.youtube.com/watch?v={video_id}',
+        'text': 'false'  # Get full transcript with timestamps first
+    }
+
+    if language:
+        params['lang'] = language
+
     try:
-        ytt_api = YouTubeTranscriptApi()
-        transcript_list = ytt_api.list_transcripts(video_id)
-        
+        # Make API request
+        response = requests.get(base_url, headers=headers, params=params)
+        response.raise_for_status()
+        data = response.json()
+
+        # Format timestamped transcript
+        timestamped_lines = []
+        for segment in data['content']:
+            timestamp = format_timestamp(segment['offset'] / 1000)  # Convert ms to seconds
+            timestamped_lines.append(f"[{timestamp}] {segment['text']}")
+        timestamped_transcript = "\n".join(timestamped_lines)
+
+        # Get clean transcript (text only)
+        params['text'] = 'true'
+        text_response = requests.get(base_url, headers=headers, params=params)
+        text_response.raise_for_status()
+        clean_transcript = text_response.json()['content']
+
         # Get available languages
         available_languages = [
-            (t.language_code, t.language) 
-            for t in transcript_list
+            (lang, lang) for lang in data.get('availableLangs', [])
         ]
-        
-        # Get transcript in requested language or default
-        if language:
-            transcript = transcript_list.find_transcript([language])
-        else:
-            transcript = transcript_list.find_transcript([t[0] for t in available_languages])
-            
-        fetched_transcript = transcript.fetch()
-        
-        # Format timestamped version
-        timestamped_lines = []
-        for entry in fetched_transcript:
-            timestamp = format_timestamp(entry.start)
-            timestamped_lines.append(f"[{timestamp}] {entry.text}")
-        timestamped_transcript = "\n".join(timestamped_lines)
-        
-        # Get clean version using TextFormatter
-        formatter = TextFormatter()
-        clean_transcript = formatter.format_transcript(fetched_transcript)
-        
+
         return timestamped_transcript, clean_transcript, available_languages
-        
-    except Exception as e:
+
+    except requests.exceptions.RequestException as e:
         raise Exception(f"Error fetching transcript: {str(e)}")
